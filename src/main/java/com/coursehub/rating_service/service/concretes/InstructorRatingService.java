@@ -9,14 +9,11 @@ import com.coursehub.rating_service.model.InstructorRating;
 import com.coursehub.rating_service.repository.InstructorRatingRepository;
 import com.coursehub.rating_service.security.UserPrincipal;
 import com.coursehub.rating_service.service.abstracts.IRatingService;
-import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import org.springframework.amqp.core.AmqpTemplate;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.Objects;
 
@@ -36,7 +33,6 @@ public class InstructorRatingService implements IRatingService {
 
 
     @Override
-    @Transactional
     public void rate(String targetId, RateRequest request, UserPrincipal principal) {
         Boolean isInstructorExist;
         try {
@@ -62,17 +58,11 @@ public class InstructorRatingService implements IRatingService {
                 .rating(request.rating())
                 .build();
 
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                rabbitTemplate.convertAndSend(EXCHANGE_NAME, ADD_INSTRUCTOR_RATING_ROUTING_KEY, responseForIdentity);
-            }
-        });
+        rabbitTemplate.convertAndSend(EXCHANGE_NAME, ADD_INSTRUCTOR_RATING_ROUTING_KEY, responseForIdentity);
 
     }
 
     @Override
-    @Transactional
     public void deleteRating(String rateId, UserPrincipal principal) {
 
         InstructorRating rating = instructorRatingRepository.findById(rateId).orElseThrow(() -> new NotFoundException("Rate not found"));
@@ -88,12 +78,7 @@ public class InstructorRatingService implements IRatingService {
                 .rating(rating.getRating())
                 .build();
 
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                rabbitTemplate.convertAndSend(EXCHANGE_NAME, DELETE_INSTRUCTOR_RATING_ROUTING_KEY, responseForIdentity);
-            }
-        });
+        rabbitTemplate.convertAndSend(EXCHANGE_NAME, DELETE_INSTRUCTOR_RATING_ROUTING_KEY, responseForIdentity);
 
     }
 }
