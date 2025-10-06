@@ -1,4 +1,4 @@
-package com.coursehub.rating_service.client;
+package com.coursehub.rating_service.exception;
 
 import lombok.Builder;
 
