@@ -2,22 +2,21 @@ package com.coursehub.rating_service.service.concretes;
 
 import com.coursehub.rating_service.client.IdentityServiceClient;
 import com.coursehub.rating_service.dto.request.RateRequest;
-import com.coursehub.rating_service.dto.response.RatingMQResponseForIdentityService;
-import com.coursehub.rating_service.exception.AccessDeniedException;
-import com.coursehub.rating_service.exception.NotFoundException;
+import com.coursehub.rating_service.dto.response.AddInstructorRatingEvent;
+import com.coursehub.rating_service.dto.response.DeleteInstructorRatingEvent;
+import com.coursehub.rating_service.exception.*;
 import com.coursehub.rating_service.model.InstructorRating;
 import com.coursehub.rating_service.repository.InstructorRatingRepository;
 import com.coursehub.rating_service.security.UserPrincipal;
 import com.coursehub.rating_service.service.abstracts.IRatingService;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
-import org.springframework.amqp.core.AmqpTemplate;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
 
-import static com.coursehub.rating_service.config.RabbitMQConfig.*;
 import static java.lang.Boolean.TRUE;
 import static lombok.AccessLevel.PRIVATE;
 
@@ -28,12 +27,20 @@ import static lombok.AccessLevel.PRIVATE;
 public class InstructorRatingService implements IRatingService {
 
     InstructorRatingRepository instructorRatingRepository;
-    AmqpTemplate rabbitTemplate;
     IdentityServiceClient identityServiceClient;
+    KafkaTemplate<String, Object> kafkaTemplate;
+
+    static String ADD_INSTRUCTOR_RATING_TOPIC = "add-instructor-rating-topic";
+    static String DELETE_INSTRUCTOR_RATING_TOPIC = "delete-instructor-rating-topic";
 
 
     @Override
     public void rate(String targetId, RateRequest request, UserPrincipal principal) {
+
+        if(instructorRatingRepository.existsInstructorRatingByInstructorIdAndUserId(targetId, principal.getId())){
+            throw new AlreadyRatedException("You already rated this author");
+        }
+
         Boolean isInstructorExist;
         try {
             isInstructorExist = identityServiceClient.isInstructorExist(targetId).getBody();
@@ -53,19 +60,20 @@ public class InstructorRatingService implements IRatingService {
 
         instructorRatingRepository.save(instructorRating);
 
-        var responseForIdentity = RatingMQResponseForIdentityService.builder()
+        var addInstructorRatingEvent = AddInstructorRatingEvent.builder()
                 .instructorId(targetId)
                 .rating(request.rating())
                 .build();
 
-        rabbitTemplate.convertAndSend(EXCHANGE_NAME, ADD_INSTRUCTOR_RATING_ROUTING_KEY, responseForIdentity);
+        kafkaTemplate.send(ADD_INSTRUCTOR_RATING_TOPIC, addInstructorRatingEvent);
 
     }
 
     @Override
     public void deleteRating(String rateId, UserPrincipal principal) {
 
-        InstructorRating rating = instructorRatingRepository.findById(rateId).orElseThrow(() -> new NotFoundException("Rate not found"));
+        InstructorRating rating = instructorRatingRepository.findById(rateId).orElseThrow(() ->
+                new NotFoundException("Rate not found"));
 
         if (!Objects.equals(principal.getId(), rating.getUserId())) {
             throw new AccessDeniedException("Access denied");
@@ -73,12 +81,12 @@ public class InstructorRatingService implements IRatingService {
 
         instructorRatingRepository.delete(rating);
 
-        var responseForIdentity = RatingMQResponseForIdentityService.builder()
+        var deleteInstructorRatingEvent = DeleteInstructorRatingEvent.builder()
                 .instructorId(rating.getInstructorId())
                 .rating(rating.getRating())
                 .build();
 
-        rabbitTemplate.convertAndSend(EXCHANGE_NAME, DELETE_INSTRUCTOR_RATING_ROUTING_KEY, responseForIdentity);
+        kafkaTemplate.send(DELETE_INSTRUCTOR_RATING_TOPIC, deleteInstructorRatingEvent);
 
     }
 }

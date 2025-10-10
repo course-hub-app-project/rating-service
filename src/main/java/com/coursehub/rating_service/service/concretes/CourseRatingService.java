@@ -2,22 +2,21 @@ package com.coursehub.rating_service.service.concretes;
 
 import com.coursehub.rating_service.client.CourseServiceClient;
 import com.coursehub.rating_service.dto.request.RateRequest;
-import com.coursehub.rating_service.dto.response.RatingMQResponseForCourseService;
-import com.coursehub.rating_service.exception.AccessDeniedException;
-import com.coursehub.rating_service.exception.NotFoundException;
+import com.coursehub.rating_service.dto.response.DeleteCourseRatingEvent;
+import com.coursehub.rating_service.dto.response.RateCourseEvent;
+import com.coursehub.rating_service.exception.*;
 import com.coursehub.rating_service.model.CourseRating;
 import com.coursehub.rating_service.repository.CourseRatingRepository;
 import com.coursehub.rating_service.security.UserPrincipal;
 import com.coursehub.rating_service.service.abstracts.IRatingService;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
-import org.springframework.amqp.core.AmqpTemplate;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
 
-import static com.coursehub.rating_service.config.RabbitMQConfig.*;
 import static java.lang.Boolean.TRUE;
 import static lombok.AccessLevel.PRIVATE;
 
@@ -28,11 +27,18 @@ import static lombok.AccessLevel.PRIVATE;
 public class CourseRatingService implements IRatingService {
 
     CourseRatingRepository courseRatingRepository;
-    AmqpTemplate rabbitTemplate;
     CourseServiceClient courseServiceClient;
+    KafkaTemplate<String, Object> kafkaTemplate;
+    static String RATE_COURSE_TOPIC = "rate-course-topic";
+    static String DELETE_COURSE_RATING_TOPIC = "delete-course-rating-topic";
 
     @Override
     public void rate(String targetId, RateRequest request, UserPrincipal principal) {
+
+        if (courseRatingRepository.existsCourseRatingByCourseIdAndUserId(targetId, principal.getId())) {
+            throw new AlreadyRatedException("You already rated this course");
+        }
+
         Boolean isCourseExist;
         try {
             isCourseExist = courseServiceClient.isPublishedCourseExist(targetId).getBody();
@@ -44,6 +50,10 @@ public class CourseRatingService implements IRatingService {
             throw new NotFoundException("Course not found");
         }
 
+
+
+
+
         CourseRating courseRating = CourseRating.builder()
                 .courseId(targetId)
                 .rating(request.rating())
@@ -52,12 +62,12 @@ public class CourseRatingService implements IRatingService {
 
         courseRatingRepository.save(courseRating);
 
-        var responseForCourse = RatingMQResponseForCourseService.builder()
+        var rateCourseEvent = RateCourseEvent.builder()
                 .courseId(targetId)
                 .rating(request.rating())
                 .build();
 
-        rabbitTemplate.convertAndSend(EXCHANGE_NAME, ADD_COURSE_RATING_ROUTING_KEY, responseForCourse);
+        kafkaTemplate.send(RATE_COURSE_TOPIC, rateCourseEvent);
     }
 
 
@@ -66,20 +76,20 @@ public class CourseRatingService implements IRatingService {
         CourseRating rating = courseRatingRepository.findById(rateId).orElseThrow(() ->
                 new NotFoundException("Rating not found"));
 
-
         if (!Objects.equals(principal.getId(), rating.getUserId())) {
             throw new AccessDeniedException("Access denied");
         }
 
         courseRatingRepository.delete(rating);
 
-        var responseForCourse = RatingMQResponseForCourseService.builder()
+        var deleteCourseRatingEvent = DeleteCourseRatingEvent.builder()
                 .courseId(rating.getCourseId())
                 .rating(rating.getRating())
                 .build();
 
 
-        rabbitTemplate.convertAndSend(EXCHANGE_NAME, DELETE_COURSE_RATING_ROUTING_KEY, responseForCourse);
+        kafkaTemplate.send(DELETE_COURSE_RATING_TOPIC, deleteCourseRatingEvent);
+
     }
 
 }

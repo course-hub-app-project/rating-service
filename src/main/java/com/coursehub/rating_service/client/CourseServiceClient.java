@@ -18,6 +18,8 @@ import static org.springframework.http.ResponseEntity.status;
 )
 public interface CourseServiceClient {
 
+
+    // todo: sadəcə publishedlər olmasın inactive(pending olanlara da video əlavə edilə bilsin)
     @GetMapping("/is-exist/{courseId}")
     @CircuitBreaker(name = "isPublishedCourseExistCircuitBreaker", fallbackMethod = "isPublishedCourseExistFallBack")
     ResponseEntity<Boolean> isPublishedCourseExist(@PathVariable String courseId);

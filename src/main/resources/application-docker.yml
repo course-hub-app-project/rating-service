@@ -13,11 +13,7 @@ spring:
     username: ch_rts_user
     password: dbhunter
     driver-class-name: org.postgresql.Driver
-  rabbitmq:
-    host: rabbitmq
-    port: 5672
-    username: coursehub_rabbit_mq
-    password: 5yZ<ox6qscG0
+
 
 server:
   port: 8084
